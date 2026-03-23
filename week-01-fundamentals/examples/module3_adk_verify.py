@@ -22,7 +22,7 @@ from google.genai import types
 # Create a simple ADK agent
 agent = LlmAgent(
     name="test_agent",
-    model=os.getenv("GOOGLE_MODEL", "gemini-3-flash-preview"),
+    model=os.getenv("GOOGLE_MODEL", "gemini-2.5-flash"),
     instruction="You are a helpful test agent. Reply with: ADK is working!",
 )
 

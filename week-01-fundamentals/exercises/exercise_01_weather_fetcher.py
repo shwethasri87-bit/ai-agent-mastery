@@ -32,30 +32,56 @@ def fetch_weather(city: str) -> dict:
     Raises:
         ValueError: If city is empty or API call fails
     """
-    # TODO: Implement this function
-    # 1. Validate the city input (not empty)
-    # 2. Make a GET request to https://wttr.in/{city}?format=j1
-    # 3. Parse the JSON response
-    # 4. Extract temperature and conditions
-    # 5. Handle errors (timeout, invalid city, etc.)
-    pass
+    if not city or not city.strip():
+        raise ValueError("City name cannot be empty")
+
+    url = f"https://wttr.in/{city.strip()}?format=j1"
+    try:
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code != 200:
+            raise ValueError(f"API returned status {response.status_code} for city '{city}'")
+            
+        try:
+            data = response.json()
+        except ValueError:
+            raise ValueError(f"Invalid city or API error for '{city}'")
+            
+        current = data.get("current_condition", [{}])[0]
+        
+        return {
+            "city": city,
+            "temperature_c": current.get("temp_C"),
+            "conditions": current.get("weatherDesc", [{}])[0].get("value", "Unknown"),
+            "wind_speed_kmph": current.get("windspeedKmph"),
+            "humidity": current.get("humidity")
+        }
+    except requests.Timeout:
+        raise ValueError(f"API call for '{city}' timed out")
+    except requests.RequestException as e:
+        raise ValueError(f"API call for '{city}' failed: {e}")
 
 
 # === Test your implementation ===
 if __name__ == "__main__":
     # Test 1: Valid city
     print("Test 1: London")
-    # result = fetch_weather("London")
-    # print(result)
+    result = fetch_weather("London")
+    print(result)
 
     # Test 2: Another valid city
     print("Test 2: Tokyo")
-    # result = fetch_weather("Tokyo")
-    # print(result)
+    result = fetch_weather("Tokyo")
+    print(result)
 
-    # Test 3: Error handling - empty city
-    print("Test 3: Empty city (should raise ValueError)")
-    # try:
-    #     result = fetch_weather("")
-    # except ValueError as e:
-    #     print(f"Caught error: {e}")
+      # Test 3: Another valid city
+    print("Test 3: India")
+    result = fetch_weather("India")
+    print(result)
+
+    # Test 4: Error handling - empty city
+    print("Test 4: Empty city (should raise ValueError)")
+    try:
+        result = fetch_weather("")
+    except ValueError as e:
+        print(f"Caught error: {e}")

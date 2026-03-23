@@ -20,42 +20,96 @@ Instructions:
 Run: python exercise_03_name_memory_agent.py
 """
 
-from langgraph.graph import StateGraph, END
-from typing import TypedDict, Annotated, Optional
-from langgraph.graph import add_messages
+import os
+from dotenv import load_dotenv
 
+from pydantic import BaseModel, Field
+from typing import TypedDict, Annotated, Optional
+from langgraph.graph import StateGraph, END, add_messages
+from langchain_core.messages import HumanMessage
+from langchain_groq import ChatGroq
+import phoenix as px
+from openinference.instrumentation.langchain import LangChainInstrumentor
 
 class ChatState(TypedDict):
     """Define your agent state here."""
-    # TODO: Add fields for messages, user_name, message_count
-    pass
+    messages: Annotated[list, add_messages]
+    user_name: Optional[str]
+    message_count: int
 
+def chat_node(state: ChatState):
+    """The main chat node."""
+    llm = ChatGroq(model="llama-3.3-70b-versatile", temperature=0.7)
+    
+    user_name = state.get("user_name")
+    message_count = state.get("message_count", 0) + 1
+    messages = state["messages"]
+    
+    if not user_name and messages:
+        last_message = messages[-1].content
+        class NameExtract(BaseModel):
+            name: Optional[str] = Field(description="The user's first name if explicitly mentioned, else None")
+            
+        try:
+            extractor = ChatGroq(model="llama-3.3-70b-versatile", temperature=0).with_structured_output(NameExtract)
+            extracted = extractor.invoke(f"Extract the user's name from this message if present: '{last_message}'")
+            if extracted and extracted.name:
+                user_name = extracted.name
+        except Exception:
+            pass # Failsafe incase extraction fails
+
+    sys_prompt = f"You are a friendly AI agent. This is turn number {message_count} in the conversation.\n"
+    if user_name:
+        sys_prompt += f"You are talking to {user_name}. Use their name naturally in your response."
+    else:
+        sys_prompt += "You don't know the user's name yet. If this is the first message, politely ask for it."
+
+    full_messages = [{"role": "system", "content": sys_prompt}] + messages
+    response = llm.invoke(full_messages)
+    
+    return {
+        "messages": [response],
+        "message_count": message_count,
+        "user_name": user_name
+    }
 
 def create_memory_agent():
-    """Build the name-memory agent.
-
-    Returns:
-        Compiled LangGraph agent
-    """
-    # TODO: Implement the agent
-    # 1. Initialize ChatOpenAI
-    # 2. Create chat_node function that uses state
-    # 3. Create should_continue function for loop control
-    # 4. Build StateGraph with nodes and edges
-    # 5. Return compiled graph
-    pass
-
+    """Build the name-memory agent."""
+    graph = StateGraph(ChatState)
+    graph.add_node("chat", chat_node)
+    graph.set_entry_point("chat")
+    graph.add_edge("chat", END)
+    return graph.compile()
 
 if __name__ == "__main__":
-    print("Name Memory Agent")
+    load_dotenv("config/.env")
+    
+    px.launch_app()
+    LangChainInstrumentor().instrument()
+    
+    print("Name Memory Agent (provider: Groq)")
     print("=" * 40)
-    print("Type 'quit' to exit\n")
+    print("Type 'quit' or 'bye' to exit\n")
 
-    # agent = create_memory_agent()
-    # state = {"messages": [], "user_name": None, "message_count": 0}
-    #
-    # while True:
-    #     user_input = input("You: ")
-    #     if user_input.lower() in ["quit", "exit"]:
-    #         break
-    #     # ... invoke agent and print response
+    agent = create_memory_agent()
+    state = {"messages": [], "user_name": None, "message_count": 0}
+
+    while True:
+        try:
+            user_input = input("You: ")
+            if user_input.lower() in ["quit", "exit", "bye"]:
+                print("Agent: Goodbye! See you next time.")
+                break
+                
+            if "messages" not in state or not state["messages"]:
+                state["messages"] = [HumanMessage(content=user_input)]
+            else:
+                state["messages"].append(HumanMessage(content=user_input))
+            
+            state = agent.invoke(state)
+            
+            print(f"Agent: {state['messages'][-1].content}")
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            print(f"Agent Error: {e}")
